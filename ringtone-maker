@@ -1,0 +1,96 @@
+#!/bin/zsh
+
+readonly program="$(basename "${0}")"
+
+# Default values
+readonly max_duration='40' # Maxium allowed duration for iPhone ringtones
+duration="${max_duration}"
+start_time='00:00:00'
+fade_out='1'
+
+# Usage
+function usage {
+  echo "
+    Convert video and audio files to iPhone ringtones.
+
+    Usage:
+      ${program} --input <file> --output <file> [--duration <integer>] [--start-time <time>] [--fade-out <integer>] [--play-after]
+
+    Options:
+      -i, --input <file>         File to convert.
+      -o, --output <file>        File to save.
+      -d, --duration <integer>   Duration (in seconds) of the output file. Maximum is ${max_duration}.
+      -f, --fade-out <integer>   Duration (in seconds) of audio fade out at the end. Default is ${fade_out}.
+      -s, --start-time <time>    Start time from when to start cutting, in the form xx:xx:xx.
+      -p, --play-after           Play ringtone after converting.
+      -h, --help                 Show this help.
+  " | sed -E 's/^ {4}//'
+
+  exit "${1}"
+}
+
+# Options
+args=()
+while [[ "${1}" ]]; do
+  case "${1}" in
+    -h | --help)
+      usage 0
+      ;;
+    -i | --input)
+      readonly input="$(realpath "${2}")"
+      shift
+      ;;
+    -o | --output)
+      readonly output="${2%.m4r}.m4r" # Add extension if missing
+      shift
+      ;;
+    -d | --duration)
+      if [[ "${2}" -gt "${max_duration}" ]]
+      then
+        echo "iPhone ringtones cannot be longer than ${max_duration} seconds. Truncating…" >&2
+      else
+        duration="${2}"
+      fi
+      shift
+      ;;
+    -s | --start-time)
+      start_time="${2}"
+      shift
+      ;;
+    -f | --fade-out)
+      fade_out="${2}";
+      shift
+      ;;
+    -p | --play-after)
+      play_after='true'
+      ;;
+    --)
+      shift
+      args+=("${@}")
+      break
+      ;;
+    -*)
+      echo "Unrecognised option: ${1}"
+      exit 1
+      ;;
+    *)
+      args+=("${1}")
+      ;;
+  esac
+  shift
+done
+set -- "${args[@]}"
+
+# Checks
+[[ -f "${input}" && -n "${output}" ]] || usage 1
+
+if ! hash 'ffmpeg' 2> /dev/null
+then
+  echo 'Missing "ffmpeg" in PATH.' >&2
+  exit 1
+fi
+
+# Main
+ffmpeg -hide_banner -i "${input}" -af "afade=t=out:st=$(bc <<< "${duration} - ${fade_out}"):d=${fade_out}" -vn -acodec aac -f mp4 -ss "${start_time}" -t "${duration}" "${output}"
+
+[[ -n "${play_after}" ]] && afplay "${output}"
